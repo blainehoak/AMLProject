@@ -74,7 +74,6 @@ output_size = 10  # confidence scores for classes (digits) 0-9
 """
 Creating the model - the output of each layer must be equal to the input of the next layer. 
 We define the activation function for each layer after defining the layer.
-We are using logsoftmax on the output to get confidence scores - TODO: why not regular softmax?
 """
 model = torch.nn.Sequential(
     torch.nn.Linear(input_size, hidden_sizes[0]),
@@ -115,9 +114,9 @@ for e in range(epochs):
 
         optimizer.zero_grad()
 
-        # now that we have reshaped the input, we can pass the first batch through the model and calculate the log probabilities (logsoftmax) and calculate the loss
-        logprobs = model(images)
-        loss = criterion(logprobs, labels)
+        # now that we have reshaped the input, we can pass the first batch through the model and calculate cross entropy loss
+        output = model(images)
+        loss = criterion(output, labels)
 
         # Model learning through backprop
         loss.backward()
@@ -129,3 +128,28 @@ for e in range(epochs):
         running_loss += loss.item()
 
     print("Epoch {} - Training loss: {}".format(e, running_loss))
+
+#### Begin Evaluation ####
+"""
+Here, we will evaluate the accuracy of our trained model on the evaluation set. TODO: k-fold cross val and use the test on the val set.
+We can iterate over everything in the valloader and go one image at a time to see if the prediction was correct.
+For each image, we can resize it to be a vector containing all the pixels, just like we did for the training data.
+"""
+correct_count, all_count = 0, 0
+for images, labels in valloader:
+    for i in range(len(labels)):
+        img = images[i].view(1, 784)
+        with torch.no_grad():
+            output = model(img)
+
+        # getting the predicted value, which is the max value from the output
+        pred_label = torch.argmax(output)
+        true_label = labels[i]
+
+        # do comparison and tally if the prediction was correct
+        if true_label == pred_label:
+            correct_count += 1
+        all_count += 1
+
+print("Number of Images Tested:", all_count)
+print("Model Accuracy:", (correct_count / all_count))
