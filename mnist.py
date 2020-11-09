@@ -128,6 +128,8 @@ for e in range(epochs):
         running_loss += loss.item()
 
     print("Epoch {} - Training loss: {}".format(e, running_loss))
+    # print(output)
+    # print(labels)
 
 #### Begin Evaluation ####
 """
@@ -139,6 +141,7 @@ correct_count, all_count = 0, 0
 for images, labels in valloader:
     for i in range(len(labels)):
         img = images[i].view(1, 784)
+
         with torch.no_grad():
             output = model(img)
 
@@ -153,3 +156,100 @@ for images, labels in valloader:
 
 print("Number of Images Tested:", all_count)
 print("Model Accuracy:", (correct_count / all_count))
+og_accuracy = correct_count / all_count
+
+#### Adversarial Example Generation ####
+
+""" Starting off with just an FGSM attack. For this attack we need:
+        - the image to perturb
+        - a value for epsilon
+        - the gradient of the loss function wrt the input image
+"""
+
+saved_ex = []
+correct_count, all_count = 0, 0
+for images, labels in valloader:
+    for i in range(len(labels)):
+        img = images[i].view(1, 784)
+
+        # need this for generating adversarial examples
+        img.requires_grad = True
+
+        # with torch.no_grad():
+        output = model(img)
+
+        # getting the predicted value, which is the max value from the output
+        pred_label = output.max(1, keepdim=True)[1]
+        true_label = labels[i].view(1)
+
+        if all_count % 1000 == 0:
+            print(output)
+            print(pred_label)
+            print(true_label)
+            print()
+
+        all_count += 1
+
+        # do comparison and tally if the prediction was correct, if it wasn't correct, we don't need to generate an adversarial example for it
+        if true_label != pred_label:
+            continue
+
+        # getting the loss wrt the true label, we want this to be high
+        # labelv = [0 if i != int(true_label) else 1 for i in range(10)]
+        loss = criterion(output, true_label)
+
+        # must zero all gradients before doing backprop
+        model.zero_grad()
+
+        # now do backprop, but wrt the image instead of the neuron weights
+        loss.backward()
+
+        # get the gradient of the image we are working with to generate the adversarial example
+        img_grad = img.grad
+
+        # getting the sign and setting a value for epsilon
+        img_grad_sign = img_grad.sign()
+        epsilon = 0.05
+
+        # generate example
+        adv_ex = img + epsilon * img_grad_sign
+
+        # since the pixel values have to be between 0 and 1, we are going to clip anything that is larger than 1
+        adv_ex = torch.clamp(adv_ex, 0, 1)
+
+        # reclassify the input
+        output = model(adv_ex)
+
+        # now check to see if it was correct in misclassifying
+        pred_label = torch.argmax(output)
+        true_label = labels[i]
+
+        if pred_label == true_label:
+            correct_count += 1
+        else:
+            # successfully tricked the model, visualize what got misclassified
+            if all_count % 1000 == 0:
+                saved_ex.append(
+                    (
+                        img,
+                        true_label.item(),
+                        adv_ex.squeeze().detach().numpy(),
+                        pred_label.item(),
+                    )
+                )
+
+print("Number of Images Tested:", all_count)
+print("Model Accuracy:", (correct_count / all_count))
+
+# now visulaize the saved examples
+
+figure = plt.figure()
+n = len(saved_ex)
+index = 0
+for img, true_label, adv_ex, pred_label in saved_ex:
+    index += 1
+    plt.subplot(3, 3, index)
+    plt.title("{} -> {}".format(true_label, pred_label))
+    plt.imshow(adv_ex)
+
+plt.show()
